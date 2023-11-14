@@ -54,14 +54,6 @@ class _MyAppState extends State<MyApp> {
 //    'offline_access',
 //    'api'
   ];
-  
-
-  final AuthorizationServiceConfiguration _serviceConfiguration =
-  const AuthorizationServiceConfiguration(
-    authorizationEndpoint: 'https://prijava.telekom.si/prijava/realms/telekom/protocol/openid-connect/auth',
-    tokenEndpoint: 'https://prijava.telekom.si/prijava/realms/telekom/protocol/openid-connect/token',
-    endSessionEndpoint: 'https://prijava.telekom.si/prijava/telekom/test/protocol/openid-connect/logout',
-  );
 
   @override
   Widget build(BuildContext context) {
@@ -80,37 +72,9 @@ class _MyAppState extends State<MyApp> {
                 ),
                 const SizedBox(height: 8),
                 ElevatedButton(
-                  child: const Text('Sign in with no code exchange'),
-                  onPressed: () => _signInWithNoCodeExchange(),
-                ),
-                ElevatedButton(
-                  child: const Text(
-                      'Sign in with no code exchange and generated nonce'),
-                  onPressed: () => _signInWithNoCodeExchangeAndGeneratedNonce(),
-                ),
-                const SizedBox(height: 8),
-                ElevatedButton(
-                  onPressed: _authorizationCode != null ? _exchangeCode : null,
-                  child: const Text('Exchange code'),
-                ),
-                const SizedBox(height: 8),
-                ElevatedButton(
                   child: const Text('Sign in with auto code exchange'),
                   onPressed: () => _signInWithAutoCodeExchange(),
                 ),
-                if (Platform.isIOS || Platform.isMacOS)
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: ElevatedButton(
-                      child: const Text(
-                        'Sign in with auto code exchange using ephemeral '
-                            'session',
-                        textAlign: TextAlign.center,
-                      ),
-                      onPressed: () => _signInWithAutoCodeExchange(
-                          preferEphemeralSession: true),
-                    ),
-                  ),
                 ElevatedButton(
                   onPressed: _refreshToken != null ? _refresh : null,
                   child: const Text('Refresh token'),
@@ -160,8 +124,9 @@ class _MyAppState extends State<MyApp> {
       _setBusyState();
       await _appAuth.endSession(EndSessionRequest(
           idTokenHint: _idToken,
+          issuer: _issuer,
           postLogoutRedirectUrl: _postLogoutRedirectUrl,
-          serviceConfiguration: _serviceConfiguration));
+          ));
       _clearSessionInfo();
     } catch (_) {}
     _clearBusyState();
@@ -197,86 +162,7 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
-  Future<void> _exchangeCode() async {
-    try {
-      _setBusyState();
-      final TokenResponse? result = await _appAuth.token(TokenRequest(
-          _clientId, _redirectUrl,
-          authorizationCode: _authorizationCode,
-          discoveryUrl: _discoveryUrl,
-          codeVerifier: _codeVerifier,
-          nonce: _nonce,
-          scopes: _scopes));
-      _processTokenResponse(result);
-      await _testApi(result);
-    } catch (_) {
-      _clearBusyState();
-    }
-  }
-
-  Future<void> _signInWithNoCodeExchange() async {
-    try {
-      _setBusyState();
-      /*
-        The discovery endpoint (_discoveryUrl) is used to find the
-        configuration. The code challenge generation can be checked here
-        > https://github.com/MaikuB/flutter_appauth/search?q=challenge.
-        The code challenge is generated from the code verifier and only the
-        code verifier is included in the result. This because to get the token
-        in the method _exchangeCode (see above) we need only the code verifier
-        and the authorization code.
-        Code challenge is not used according to the spec
-        https://www.rfc-editor.org/rfc/rfc7636 page 9 section 4.5.
-      */
-      final AuthorizationResponse? result = await _appAuth.authorize(
-        AuthorizationRequest(_clientId, _redirectUrl,
-            issuer: _issuer, scopes: _scopes, loginHint: 'bob'),
-      );
-
-      /*
-        or just use the issuer
-        var result = await _appAuth.authorize(
-          AuthorizationRequest(
-            _clientId,
-            _redirectUrl,
-            issuer: _issuer,
-            scopes: _scopes,
-          ),
-        );
-      */
-
-      if (result != null) {
-        _processAuthResponse(result);
-      }
-    } catch (_) {
-      _clearBusyState();
-    }
-  }
-
-  Future<void> _signInWithNoCodeExchangeAndGeneratedNonce() async {
-    try {
-      _setBusyState();
-      final Random random = Random.secure();
-      final String nonce =
-      base64Url.encode(List<int>.generate(16, (_) => random.nextInt(256)));
-      // use the discovery endpoint to find the configuration
-      final AuthorizationResponse? result = await _appAuth.authorize(
-        AuthorizationRequest(_clientId, _redirectUrl,
-            discoveryUrl: _discoveryUrl,
-            scopes: _scopes,
-            loginHint: 'bob',
-            nonce: nonce),
-      );
-
-      if (result != null) {
-        _processAuthResponse(result);
-      }
-    } catch (_) {
-      _clearBusyState();
-    }
-  }
-
-  Future<void> _signInWithAutoCodeExchange(
+    Future<void> _signInWithAutoCodeExchange(
       {bool preferEphemeralSession = false}) async {
     try {
       _setBusyState();
@@ -290,7 +176,7 @@ class _MyAppState extends State<MyApp> {
         AuthorizationTokenRequest(
           _clientId,
           _redirectUrl,
-          serviceConfiguration: _serviceConfiguration,
+          issuer: _issuer,
           scopes: _scopes,
           preferEphemeralSession: preferEphemeralSession,
         ),
