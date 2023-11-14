@@ -40,9 +40,12 @@ class _MyAppState extends State<MyApp> {
   // For a list of client IDs, go to https://demo.duendesoftware.com
   final String _clientId = 'test-client';
   final String _redirectUrl = 'com.duendesoftware.demo:/oauthredirect';
-  final String _issuer = 'https://p71-pc.fritz.box/auth/realms/test';
+  // final String _issuer = 'https://p71-pc.fritz.box/auth/realms/test';
+  // final String _discoveryUrl =
+  //     'https://p71-pc.fritz.box/auth/realms/test/.well-known/openid-configuration';
+  final String _issuer = 'https://prijava.telekom.si/prijava/realms/telekom';
   final String _discoveryUrl =
-      'https://p71-pc.fritz.box/auth/realms/test/.well-known/openid-configuration';
+       'https://prijava.telekom.si/prijava/realms/telekom/.well-known/openid-configuration';
   final String _postLogoutRedirectUrl = 'com.duendesoftware.demo:/';
   final List<String> _scopes = <String>[
     'openid',
@@ -55,9 +58,9 @@ class _MyAppState extends State<MyApp> {
 
   final AuthorizationServiceConfiguration _serviceConfiguration =
   const AuthorizationServiceConfiguration(
-    authorizationEndpoint: 'https://p71-pc.fritz.box/auth/realms/test/protocol/openid-connect/auth',
-    tokenEndpoint: 'https://p71-pc.fritz.box/auth/realms/test/protocol/openid-connect/token',
-    endSessionEndpoint: 'https://p71-pc.fritz.box/auth/realms/test/protocol/openid-connect/logout',
+    authorizationEndpoint: 'https://prijava.telekom.si/prijava/realms/telekom/protocol/openid-connect/auth',
+    tokenEndpoint: 'https://prijava.telekom.si/prijava/realms/telekom/protocol/openid-connect/token',
+    endSessionEndpoint: 'https://prijava.telekom.si/prijava/telekom/test/protocol/openid-connect/logout',
   );
 
   @override
