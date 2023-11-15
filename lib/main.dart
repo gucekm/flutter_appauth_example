@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_appauth/flutter_appauth.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 void main() => runApp(const MyApp());
 
@@ -17,13 +18,13 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   bool _isBusy = false;
   final FlutterAppAuth _appAuth = const FlutterAppAuth();
+  final _storage = const FlutterSecureStorage();
   String? _codeVerifier;
   String? _nonce;
   String? _authorizationCode;
   String? _refreshToken;
   String? _accessToken;
   String? _idToken;
-
 
   final TextEditingController _authorizationCodeTextController =
   TextEditingController();
@@ -54,6 +55,31 @@ class _MyAppState extends State<MyApp> {
 //    'offline_access',
 //    'api'
   ];
+
+  @override
+  void initState()  {
+    super.initState();
+    //get refresh token from secure storage
+    _loadRefreshToken().then((value) {
+      //try refresh token
+      _refresh();
+      _clearBusyState();
+    });
+    //if token is not valid clear user session
+
+    //otherwise get fresh access token
+
+  }
+
+  Future <void> _loadRefreshToken() async  {
+    if (await _storage.containsKey(key: "refreshToken")) {
+      _refreshToken= await _storage.read(key: "refreshToken");
+    }
+  }
+
+  Future <void> _storeRefreshToken(String? refreshToken) async  {
+      await _storage.write(key: "refreshToken", value: refreshToken);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -109,8 +135,6 @@ class _MyAppState extends State<MyApp> {
                 TextField(
                   controller: _refreshTokenTextController,
                 ),
-                const Text('test api results'),
-                Text(_userInfo ?? ''),
               ],
             ),
           ),
@@ -127,12 +151,12 @@ class _MyAppState extends State<MyApp> {
           issuer: _issuer,
           postLogoutRedirectUrl: _postLogoutRedirectUrl,
           ));
-      _clearSessionInfo();
+      await _clearSessionInfo();
     } catch (_) {}
     _clearBusyState();
   }
 
-  void _clearSessionInfo() {
+  Future <void> _clearSessionInfo() async {
     setState(() {
       _codeVerifier = null;
       _nonce = null;
@@ -147,6 +171,7 @@ class _MyAppState extends State<MyApp> {
       _accessTokenExpirationTextController.clear();
       _userInfo = null;
     });
+    await _storage.write(key:"refreshToken", value: null);
   }
 
   Future<void> _refresh() async {
@@ -156,8 +181,9 @@ class _MyAppState extends State<MyApp> {
           _clientId, _redirectUrl,
           refreshToken: _refreshToken, issuer: _issuer, scopes: _scopes));
       _processTokenResponse(result);
-      await _testApi(result);
+      _storeRefreshToken(_refreshToken);
     } catch (_) {
+      _clearSessionInfo();
       _clearBusyState();
     }
   }
@@ -178,6 +204,8 @@ class _MyAppState extends State<MyApp> {
           _redirectUrl,
           issuer: _issuer,
           scopes: _scopes,
+          promptValues: ["login"],
+          additionalParameters: {"max_age":"0"},
           preferEphemeralSession: preferEphemeralSession,
         ),
       );
@@ -201,7 +229,8 @@ class _MyAppState extends State<MyApp> {
 
       if (result != null) {
         _processAuthTokenResponse(result);
-        await _testApi(result);
+        _storeRefreshToken(_refreshToken);
+        _clearBusyState();
       }
     } catch (_) {
       _clearBusyState();
@@ -254,13 +283,4 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
-  Future<void> _testApi(TokenResponse? response) async {
-    final http.Response httpResponse = await http.get(
-        Uri.parse('https://demo.duendesoftware.com/api/test'),
-        headers: <String, String>{'Authorization': 'Bearer $_accessToken'});
-    setState(() {
-      _userInfo = httpResponse.statusCode == 200 ? httpResponse.body : '';
-      _isBusy = false;
-    });
-  }
 }
