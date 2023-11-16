@@ -69,4 +69,7 @@ flutter {
     source '../..'
 }
 
-dependencies {}
+dependencies {
+    // see https://github.com/MaikuB/flutter_appauth/issues/362#issuecomment-1713064523
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+}
