@@ -8,7 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 
-void main() => runApp(const MyApp());
+void main() => runApp(MaterialApp(home: MyApp()));
 
 enum _SupportState {
   unknown,
@@ -39,28 +39,29 @@ class _MyAppState extends State<MyApp> {
   String _authorized = 'Not Authorized';
   bool _isAuthenticating = false;
 
-
   final TextEditingController _authorizationCodeTextController =
-  TextEditingController();
+      TextEditingController();
   final TextEditingController _accessTokenTextController =
-  TextEditingController();
+      TextEditingController();
   final TextEditingController _accessTokenExpirationTextController =
-  TextEditingController();
-
+      TextEditingController();
   final TextEditingController _idTokenTextController = TextEditingController();
   final TextEditingController _refreshTokenTextController =
-  TextEditingController();
+      TextEditingController();
+  final TextEditingController _refreshTokenExpirationTextController =
+      TextEditingController();
   String? _userInfo;
 
   // For a list of client IDs, go to https://demo.duendesoftware.com
   final String _clientId = 'test-client';
   final String _redirectUrl = 'com.duendesoftware.demo:/oauthredirect';
+
   // final String _issuer = 'https://p71-pc.fritz.box/auth/realms/test';
   // final String _discoveryUrl =
   //     'https://p71-pc.fritz.box/auth/realms/test/.well-known/openid-configuration';
   final String _issuer = 'https://prijava.telekom.si/prijava/realms/telekom';
   final String _discoveryUrl =
-       'https://prijava.telekom.si/prijava/realms/telekom/.well-known/openid-configuration';
+      'https://prijava.telekom.si/prijava/realms/telekom/.well-known/openid-configuration';
   final String _postLogoutRedirectUrl = 'com.duendesoftware.demo:/';
   final List<String> _scopes = <String>[
     'openid',
@@ -71,18 +72,25 @@ class _MyAppState extends State<MyApp> {
   ];
 
   @override
-  void initState()  {
+  void initState() {
     super.initState();
-    //get refresh token from secure storage
-    _loadRefreshToken().then((value) {
-      //try refresh token
-      _refresh();
-      _clearBusyState();
+    _storage.containsKey(key: "refreshToken").then((value) {
+      if (value) {
+        _authenticate().then((value) {
+          _loadRefreshToken().then((value) {
+            _refresh().then((value) {
+              if (value) {
+                _clearBusyState();
+              } else {
+                _showDialog();
+              }
+            });
+          });
+        });
+      } else {
+        _signInWithAutoCodeExchange().then((value) {});
+      }
     });
-    //if token is not valid clear user session
-
-    //otherwise get fresh access token
-
   }
 
   Future<void> _authenticate() async {
@@ -114,84 +122,87 @@ class _MyAppState extends State<MyApp> {
     }
 
     setState(
-            () => _authorized = authenticated ? 'Authorized' : 'Not Authorized');
+        () => _authorized = authenticated ? 'Authorized' : 'Not Authorized');
   }
-  Future <void> _loadRefreshToken() async  {
+
+  Future<void> _loadRefreshToken() async {
     if (await _storage.containsKey(key: "refreshToken")) {
-      _refreshToken= await _storage.read(key: "refreshToken");
+      _refreshToken = await _storage.read(key: "refreshToken");
     }
   }
 
-  Future <void> _storeRefreshToken(String? refreshToken) async  {
-      await _storage.write(key: "refreshToken", value: refreshToken);
+  Future<void> _storeRefreshToken(String? refreshToken) async {
+    await _storage.write(key: "refreshToken", value: refreshToken);
   }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(
-          title: const Text('Plugin example app'),
-        ),
-        body: SafeArea(
-          child: SingleChildScrollView(
-            child: Column(
-              children: <Widget>[
-                Visibility(
-                  visible: _isBusy,
-                  child: const LinearProgressIndicator(),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Plugin example app'),
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            children: <Widget>[
+              Visibility(
+                visible: _isBusy,
+                child: const LinearProgressIndicator(),
+              ),
+              const SizedBox(height: 8),
+              ElevatedButton(
+                child: const Text('Sign in with auto code exchange'),
+                onPressed: () => _signInWithAutoCodeExchange(),
+              ),
+              ElevatedButton(
+                onPressed: _refreshToken != null ? _refresh : null,
+                child: const Text('Refresh token'),
+              ),
+              const SizedBox(height: 8),
+              ElevatedButton(
+                onPressed: _idToken != null
+                    ? () async {
+                        await _endSession();
+                      }
+                    : null,
+                child: const Text('End session'),
+              ),
+              ElevatedButton(
+                onPressed: _authenticate,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text('Authenticate'),
+                    Icon(Icons.perm_device_information),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                ElevatedButton(
-                  child: const Text('Sign in with auto code exchange'),
-                  onPressed: () => _signInWithAutoCodeExchange(),
-                ),
-                ElevatedButton(
-                  onPressed: _refreshToken != null ? _refresh : null,
-                  child: const Text('Refresh token'),
-                ),
-                const SizedBox(height: 8),
-                ElevatedButton(
-                  onPressed: _idToken != null
-                      ? () async {
-                    await _endSession();
-                  }
-                      : null,
-                  child: const Text('End session'),
-                ),
-                ElevatedButton(
-                  onPressed: _authenticate,
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Text('Authenticate'),
-                      Icon(Icons.perm_device_information),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text('authorization code'),
-                TextField(
-                  controller: _authorizationCodeTextController,
-                ),
-                const Text('access token'),
-                TextField(
-                  controller: _accessTokenTextController,
-                ),
-                const Text('access token expiration'),
-                TextField(
-                  controller: _accessTokenExpirationTextController,
-                ),
-                const Text('id token'),
-                TextField(
-                  controller: _idTokenTextController,
-                ),
-                const Text('refresh token'),
-                TextField(
-                  controller: _refreshTokenTextController,
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 8),
+              const Text('authorization code'),
+              TextField(
+                controller: _authorizationCodeTextController,
+              ),
+              const Text('access token'),
+              TextField(
+                controller: _accessTokenTextController,
+              ),
+              const Text('access token expiration'),
+              TextField(
+                controller: _accessTokenExpirationTextController,
+              ),
+              const Text('id token'),
+              TextField(
+                controller: _idTokenTextController,
+              ),
+              const Text('refresh token'),
+              TextField(
+                controller: _refreshTokenTextController,
+              ),
+              const Text('refresh token expiration'),
+              TextField(
+                controller: _refreshTokenExpirationTextController,
+              ),
+            ],
           ),
         ),
       ),
@@ -202,16 +213,16 @@ class _MyAppState extends State<MyApp> {
     try {
       _setBusyState();
       await _appAuth.endSession(EndSessionRequest(
-          idTokenHint: _idToken,
-          issuer: _issuer,
-          postLogoutRedirectUrl: _postLogoutRedirectUrl,
-          ));
+        idTokenHint: _idToken,
+        issuer: _issuer,
+        postLogoutRedirectUrl: _postLogoutRedirectUrl,
+      ));
       await _clearSessionInfo();
     } catch (_) {}
     _clearBusyState();
   }
 
-  Future <void> _clearSessionInfo() async {
+  Future<void> _clearSessionInfo() async {
     setState(() {
       _codeVerifier = null;
       _nonce = null;
@@ -224,12 +235,13 @@ class _MyAppState extends State<MyApp> {
       _refreshToken = null;
       _refreshTokenTextController.clear();
       _accessTokenExpirationTextController.clear();
+      _refreshTokenExpirationTextController.clear();
       _userInfo = null;
     });
-    await _storage.write(key:"refreshToken", value: null);
+    await _storage.delete(key: "refreshToken");
   }
 
-  Future<void> _refresh() async {
+  Future<bool> _refresh() async {
     try {
       _setBusyState();
       final TokenResponse? result = await _appAuth.token(TokenRequest(
@@ -237,13 +249,16 @@ class _MyAppState extends State<MyApp> {
           refreshToken: _refreshToken, issuer: _issuer, scopes: _scopes));
       _processTokenResponse(result);
       _storeRefreshToken(_refreshToken);
+      _clearBusyState();
     } catch (_) {
       _clearSessionInfo();
       _clearBusyState();
+      return false;
     }
+    return true;
   }
 
-    Future<void> _signInWithAutoCodeExchange(
+  Future<void> _signInWithAutoCodeExchange(
       {bool preferEphemeralSession = false}) async {
     try {
       _setBusyState();
@@ -253,14 +268,14 @@ class _MyAppState extends State<MyApp> {
         getting from the details from the discovery document.
       */
       final AuthorizationTokenResponse? result =
-      await _appAuth.authorizeAndExchangeCode(
+          await _appAuth.authorizeAndExchangeCode(
         AuthorizationTokenRequest(
           _clientId,
           _redirectUrl,
           issuer: _issuer,
           scopes: _scopes,
           promptValues: ["login"],
-          additionalParameters: {"max_age":"0"},
+          additionalParameters: {"max_age": "0"},
           preferEphemeralSession: preferEphemeralSession,
         ),
       );
@@ -311,6 +326,9 @@ class _MyAppState extends State<MyApp> {
       _refreshToken = _refreshTokenTextController.text = response.refreshToken!;
       _accessTokenExpirationTextController.text =
           response.accessTokenExpirationDateTime!.toIso8601String();
+      DateTime? ret = _parseJSONWebTokenExpirationTime(response.refreshToken);
+      _refreshTokenExpirationTextController.text =
+          (ret == null) ? "" : ret.toIso8601String();
     });
   }
 
@@ -335,7 +353,59 @@ class _MyAppState extends State<MyApp> {
       _refreshToken = _refreshTokenTextController.text = response.refreshToken!;
       _accessTokenExpirationTextController.text =
           response.accessTokenExpirationDateTime!.toIso8601String();
+      DateTime? ret = _parseJSONWebTokenExpirationTime(response.refreshToken);
+      _refreshTokenExpirationTextController.text =
+          (ret == null) ? "" : ret.toIso8601String();
     });
   }
 
+  void _showDialog() {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await showDialog(
+        context: context,
+        builder: (BuildContext context) => Center(
+          child: AlertDialog(
+            title: Text('Welcome'),
+            actions: <Widget>[
+              TextButton(
+                child: Text('OK'),
+                onPressed: () {
+                  _signInWithAutoCodeExchange().then((value) {});
+                  Navigator.of(context).pop();
+                },
+              ),
+            ],
+            insetPadding: EdgeInsets.all(20),
+            contentPadding: EdgeInsets.all(20),
+            content: Text('Seja je žal potekla!'),
+          ),
+        ),
+      );
+    });
+  }
+}
+
+DateTime? _parseJSONWebTokenExpirationTime(String? token) {
+  if (token == null) return null;
+
+  List<String> parts = token.split(".");
+
+  if (parts.length != 3) {
+    throw Exception("Invalid token");
+  }
+
+  String payload = parts[1];
+  String normalizedPayload = base64Url.normalize(payload);
+  String decodedPayload = utf8.decode(base64Url.decode(normalizedPayload));
+
+  Map<String, dynamic> payloadMap = jsonDecode(decodedPayload);
+
+  if (payloadMap.containsKey("exp")) {
+    int timestamp = payloadMap["exp"];
+    DateTime expirationDate =
+        DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
+    return expirationDate;
+  } else {
+    return null;
+  }
 }
