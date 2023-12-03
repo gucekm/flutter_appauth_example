@@ -1,14 +1,22 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
-import 'dart:math';
+
+//import 'dart:html';
+import 'dart:io' show HttpClient, HttpClientRequest, Platform;
+
+//import 'dart:js';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_appauth/flutter_appauth.dart';
-import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 
-void main() => runApp(MaterialApp(home: MyApp()));
+Future<void> main() async {
+  runApp(MaterialApp(initialRoute: "MyApp", routes: {
+    "MyApp": (context) => const MyApp(),
+  }));
+}
 
 enum _SupportState {
   unknown,
@@ -35,7 +43,7 @@ class _MyAppState extends State<MyApp> {
   String? _idToken;
 
   final LocalAuthentication auth = LocalAuthentication();
-  _SupportState _supportState = _SupportState.unknown;
+  final _SupportState _supportState = _SupportState.unknown;
   String _authorized = 'Not Authorized';
   bool _isAuthenticating = false;
 
@@ -62,6 +70,7 @@ class _MyAppState extends State<MyApp> {
   final String _issuer = 'https://prijava.telekom.si/prijava/realms/telekom';
   final String _discoveryUrl =
       'https://prijava.telekom.si/prijava/realms/telekom/.well-known/openid-configuration';
+  final String _ssoDomain = "prijava.telekom.si";
   final String _postLogoutRedirectUrl = 'com.duendesoftware.demo:/';
   final List<String> _scopes = <String>[
     'openid',
@@ -71,26 +80,70 @@ class _MyAppState extends State<MyApp> {
 //    'api'
   ];
 
+  final String _siteDomain = "moj.telekom.si";
+  final String _siteUrl =
+      "https://moj.telekom.si/eu/MobileDashboard/Dashboard/Index/041777142";
+
+  // final String _siteDomain = ".fritz.box";
+  // final String _siteUrl="http://p71-pc.fritz.box:62778/";
+
+  final String _sessionUrl =
+      "https://moj.telekom.si/sc-api/api/SessionProvider/GetMtSession";
+
+  final WebViewController _webViewController = WebViewController();
+  final WebViewCookieManager _cookieManager = WebViewCookieManager();
+  double? _webViewHeight = null;
+
+  _MyAppState() {
+    _webViewController.setJavaScriptMode(JavaScriptMode.unrestricted);
+    _webViewController.setNavigationDelegate(NavigationDelegate(
+      onNavigationRequest: (navigation) async {
+        final host = Uri.parse(navigation.url).host;
+        if (host.contains(_ssoDomain)) {
+          await _signInWithAutoCodeExchange();
+          await _getSession();
+          await _webViewController.loadRequest(Uri.parse(_siteUrl));
+          return NavigationDecision.prevent;
+        }
+        return NavigationDecision.navigate;
+      },
+      onPageFinished: (value) async {
+        if (_webViewController != null) {
+          await _webViewController.runJavaScriptReturningResult(
+              "document.documentElement.scrollHeight;");
+          _webViewHeight = await double.tryParse(value.toString()) ?? 100;
+          setState(() {});
+        }
+      },
+    ));
+  }
+
   @override
-  void initState() {
+  void initState() async {
     super.initState();
-    _storage.containsKey(key: "refreshToken").then((value) {
-      if (value) {
-        _authenticate().then((value) {
-          _loadRefreshToken().then((value) {
-            _refresh().then((value) {
-              if (value) {
-                _clearBusyState();
-              } else {
-                _showDialog();
-              }
-            });
-          });
-        });
+// Check if refresh token exists and there is valid SSO session
+// otherwise authenticate user and create new SSO session
+// SSO session is now valid so we retrieve MT session cookies
+// Inject cookies and  show web view
+
+    AndroidWebViewController.enableDebugging(true);
+    if (await _storage.containsKey(key: "refreshToken")) {
+//check owner presence with biometrics
+      await _authenticate();
+      await _loadRefreshToken();
+      if (await _refresh()) {
+        _clearBusyState();
+        await _cookieManager.clearCookies();
+        await _getSession();
+        await _webViewController.loadRequest(Uri.parse(_siteUrl));
       } else {
-        _signInWithAutoCodeExchange().then((value) {});
+        _showDialog();
       }
-    });
+    } else {
+      await _signInWithAutoCodeExchange();
+      await _getSession();
+      await _webViewController.loadRequest(Uri.parse(_siteUrl));
+    }
   }
 
   Future<void> _authenticate() async {
@@ -150,58 +203,64 @@ class _MyAppState extends State<MyApp> {
                 child: const LinearProgressIndicator(),
               ),
               const SizedBox(height: 8),
-              ElevatedButton(
-                child: const Text('Sign in with auto code exchange'),
-                onPressed: () => _signInWithAutoCodeExchange(),
-              ),
-              ElevatedButton(
-                onPressed: _refreshToken != null ? _refresh : null,
-                child: const Text('Refresh token'),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: _idToken != null
-                    ? () async {
-                        await _endSession();
-                      }
-                    : null,
-                child: const Text('End session'),
-              ),
-              ElevatedButton(
-                onPressed: _authenticate,
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text('Authenticate'),
-                    Icon(Icons.perm_device_information),
-                  ],
+              SizedBox(
+                height: _webViewHeight ?? MediaQuery.of(context).size.height,
+                child: WebViewWidget(
+                  controller: _webViewController,
                 ),
               ),
-              const SizedBox(height: 8),
-              const Text('authorization code'),
-              TextField(
-                controller: _authorizationCodeTextController,
-              ),
-              const Text('access token'),
-              TextField(
-                controller: _accessTokenTextController,
-              ),
-              const Text('access token expiration'),
-              TextField(
-                controller: _accessTokenExpirationTextController,
-              ),
-              const Text('id token'),
-              TextField(
-                controller: _idTokenTextController,
-              ),
-              const Text('refresh token'),
-              TextField(
-                controller: _refreshTokenTextController,
-              ),
-              const Text('refresh token expiration'),
-              TextField(
-                controller: _refreshTokenExpirationTextController,
-              ),
+// ElevatedButton(
+//   child: const Text('Sign in with auto code exchange'),
+//   onPressed: () => _signInWithAutoCodeExchange(),
+// ),
+// ElevatedButton(
+//   onPressed: _refreshToken != null ? _refresh : null,
+//   child: const Text('Refresh token'),
+// ),
+// const SizedBox(height: 8),
+// ElevatedButton(
+//   onPressed: _idToken != null
+//       ? () async {
+//           await _endSession();
+//         }
+//       : null,
+//   child: const Text('End session'),
+// ),
+// ElevatedButton(
+//   onPressed: _authenticate,
+//   child: const Row(
+//     mainAxisSize: MainAxisSize.min,
+//     children: <Widget>[
+//       Text('Authenticate'),
+//       Icon(Icons.perm_device_information),
+//     ],
+//   ),
+// ),
+// const SizedBox(height: 8),
+// const Text('authorization code'),
+// TextField(
+//   controller: _authorizationCodeTextController,
+// ),
+// const Text('access token'),
+// TextField(
+//   controller: _accessTokenTextController,
+// ),
+// const Text('access token expiration'),
+// TextField(
+//   controller: _accessTokenExpirationTextController,
+// ),
+// const Text('id token'),
+// TextField(
+//   controller: _idTokenTextController,
+// ),
+// const Text('refresh token'),
+// TextField(
+//   controller: _refreshTokenTextController,
+// ),
+// const Text('refresh token expiration'),
+// TextField(
+//   controller: _refreshTokenExpirationTextController,
+// ),
             ],
           ),
         ),
@@ -263,7 +322,7 @@ class _MyAppState extends State<MyApp> {
     try {
       _setBusyState();
 
-      /*
+/*
         This shows that we can also explicitly specify the endpoints rather than
         getting from the details from the discovery document.
       */
@@ -280,7 +339,7 @@ class _MyAppState extends State<MyApp> {
         ),
       );
 
-      /*
+/*
         This code block demonstrates passing in values for the prompt
         parameter. In this case it prompts the user login even if they have
         already signed in. the list of supported values depends on the
@@ -334,7 +393,7 @@ class _MyAppState extends State<MyApp> {
 
   void _processAuthResponse(AuthorizationResponse response) {
     setState(() {
-      /*
+/*
         Save the code verifier and nonce as it must be used when exchanging the
         token.
       */
@@ -365,23 +424,50 @@ class _MyAppState extends State<MyApp> {
         context: context,
         builder: (BuildContext context) => Center(
           child: AlertDialog(
-            title: Text('Welcome'),
+            title: const Text('Welcome'),
             actions: <Widget>[
               TextButton(
-                child: Text('OK'),
+                child: const Text('OK'),
                 onPressed: () {
                   _signInWithAutoCodeExchange().then((value) {});
                   Navigator.of(context).pop();
                 },
               ),
             ],
-            insetPadding: EdgeInsets.all(20),
-            contentPadding: EdgeInsets.all(20),
-            content: Text('Seja je žal potekla!'),
+            insetPadding: const EdgeInsets.all(20),
+            contentPadding: const EdgeInsets.all(20),
+            content: const Text('Seja je žal potekla!'),
           ),
         ),
       );
     });
+  }
+
+  Future<void> _getSession() async {
+    try {
+      await _refresh();
+      HttpClient client = HttpClient();
+      HttpClientRequest request = await client.getUrl(Uri.parse(_sessionUrl));
+      request.headers.set("Authorization", "Bearer $_accessToken");
+      var response = await request.close();
+      if (response.statusCode == 204) {
+        for (var cookie in response.cookies) {
+          var webCookie = WebViewCookie(
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain ?? _siteDomain,
+            path: cookie.path ?? "/",
+          );
+          await _cookieManager.setCookie(webCookie);
+        }
+
+        print("MT Session cookies response: ");
+        print(response.cookies);
+      }
+    } catch (e) {
+      return;
+    }
+    return;
   }
 }
 
