@@ -1,12 +1,6 @@
-import 'dart:convert';
-
-//import 'dart:html';
 import 'dart:io';
-
-//import 'dart:js';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_appauth/flutter_appauth.dart';
 import 'package:flutter_appauth_example/session.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
