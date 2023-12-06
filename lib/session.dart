@@ -31,6 +31,7 @@ class Session {
   String? get refreshToken {
     return _refreshToken;
   }
+
   Future<bool> refreshTokens(String? refreshToken) async {
     final TokenResponse? result = await _appAuth.token(TokenRequest(
         _clientId, _redirectUrl,
@@ -60,15 +61,17 @@ class Session {
     return null;
   }
 
-  Future<void> endSession() async {
-    try {
+  Future<bool> endSession() async {
+    if (_idToken != null) {
       await _appAuth.endSession(EndSessionRequest(
         idTokenHint: _idToken,
         issuer: _issuer,
         postLogoutRedirectUrl: _postLogoutRedirectUrl,
       ));
       await clear();
-    } catch (_) {}
+      return true;
+    }
+    return false;
   }
 
   Future<void> clear() async {
@@ -114,7 +117,6 @@ class Session {
       throw SessionException("Failed to get MT session cookies.");
     }
   }
-
 }
 
 class SessionException implements Exception {

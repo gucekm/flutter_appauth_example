@@ -58,19 +58,18 @@ class _MyAppState extends State<MyApp> {
         final host = Uri.parse(navigation.url).host;
         if (host.contains(_ssoDomain)) {
           try {
-            _setBusyState();
-            signIn();
-          } catch (e) {
-            _clearSessionCookies();
-            _clearRefreshToken();
-            _session.clear();
-            _clearBusyState();
+            if (await signIn()) {
+              await _webViewController.loadRequest(Uri.parse(_siteUrl));
+            }
+            return NavigationDecision.prevent;
+          } catch (_) {
+            return NavigationDecision.prevent;
           }
-
-          await _webViewController.loadRequest(Uri.parse(_siteUrl));
-          return NavigationDecision.prevent;
         }
         return NavigationDecision.navigate;
+      },
+      onPageStarted: (navigation) {
+        _setBusyState();
       },
       onPageFinished: (navigation) {
         _clearBusyState();
@@ -88,11 +87,11 @@ class _MyAppState extends State<MyApp> {
 
   Future<bool> _checkSessionOnStartUp() async {
     try {
-      _setBusyState();
-      // Check if refresh token exists and there is valid SSO session
+// Check if refresh token exists and there is valid SSO session
       if (await _storage.containsKey(key: "refreshToken")) {
-        //check owner presence with biometrics
+//check owner presence with biometrics
         await _authenticate();
+        _setBusyState();
         await _loadRefreshToken();
         if (await _session.refreshTokens(await _loadRefreshToken())) {
           await _cookieManager.clearCookies();
@@ -101,36 +100,50 @@ class _MyAppState extends State<MyApp> {
           return false;
         }
       } else {
-        // otherwise authenticate user and create new SSO session
-        await _session.signInWithAutoCodeExchange();
+// otherwise authenticate user and create new SSO session
+        await signIn();
       }
-      // SSO session is now valid so we retrieve MT session cookies
-      // Inject cookies and load content
+// SSO session is now valid so we retrieve MT session cookies
+// Inject cookies and load content
       await _storeRefreshToken(_session.refreshToken);
       await _storeSessionCookies(await _session.getMTSession());
       await _webViewController.loadRequest(Uri.parse(_siteUrl));
-      _clearBusyState();
+      //do not clear busy state, wait web page to finish loading
+      // _clearBusyState();
       return true;
     } catch (e) {
-      _session.clear();
-      _clearSessionCookies();
-      _clearRefreshToken();
+      await _clearAll();
       _clearBusyState();
       throw SessionException("Failed to check session on startup.");
     }
   }
 
-  Future<void> signIn() async {
+  Future<bool> signIn() async {
     try {
       _setBusyState();
       await _session.signInWithAutoCodeExchange();
       await _storeSessionCookies(await _session.getMTSession());
+      //let operation after signIn clear busy state
+      //_clearBusyState();
+      return true;
     } catch (e) {
-      _session.clear();
-      _clearSessionCookies();
-      _clearRefreshToken();
+      await _clearAll();
       _clearBusyState();
       throw SessionException("Failed to sign in.");
+    }
+  }
+
+  Future<void> signOut() async {
+    try {
+      _setBusyState();
+      if (await _session.endSession()) {
+        await _clearAll();
+      }
+      _clearBusyState();
+    } catch (e) {
+      await _clearAll();
+      _clearBusyState();
+      throw SessionException("Failed to logout.");
     }
   }
 
@@ -182,53 +195,61 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(
-          title: const Text('Sample Code'),
-        ),
-        body: SafeArea(
-          child: LayoutBuilder(
-            builder:
-                (BuildContext context, BoxConstraints viewportConstraints) {
-              return SingleChildScrollView(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: viewportConstraints.maxHeight,
-                  ),
-                  child: IntrinsicHeight(
-                    child: Column(
-                      children: <Widget>[
-                        Visibility(
-                          visible: _isBusy,
-                          child: const LinearProgressIndicator(),
-                        ),
-                        const SizedBox(height: 8),
-                        Expanded(
-                          child: Container(
-                            height: 0,
-                            child: WebViewWidget(
-                              controller: _webViewController,
-                            ),
+      appBar: AppBar(
+        title: const Text('Sample Code'),
+      ),
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints viewportConstraints) {
+            return SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: viewportConstraints.maxHeight,
+                ),
+                child: IntrinsicHeight(
+                  child: Column(
+                    children: <Widget>[
+                      Visibility(
+                        visible: _isBusy,
+                        child: const LinearProgressIndicator(),
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: Container(
+                          height: 0,
+                          child: WebViewWidget(
+                            controller: _webViewController,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
-              );
-            },
-          ),
-        ));
-  }
-
-  Future<void> signOut() async {
-    try {
-      await _session.endSession();
-    } catch (e) {
-      _session.clear();
-      _clearSessionCookies();
-      _clearRefreshToken();
-      throw SessionException("Logout failed.");
-    }
+              ),
+            );
+          },
+        ),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.login), label: ""),
+          BottomNavigationBarItem(icon: Icon(Icons.logout), label: ""),
+        ],
+        onTap: (index) async {
+          switch (index) {
+            case 0:
+              await signIn();
+              _clearBusyState();
+              break;
+            case 1:
+              await signOut();
+              //we force login again
+              await _webViewController.loadRequest(Uri.parse(_siteUrl));
+              break;
+          }
+        },
+      ),
+    );
   }
 
   void _clearBusyState() {
@@ -253,8 +274,8 @@ class _MyAppState extends State<MyApp> {
             actions: <Widget>[
               TextButton(
                 child: const Text('OK'),
-                onPressed: () {
-                  _session.signInWithAutoCodeExchange().then((value) {});
+                onPressed: () async {
+                  await signIn();
                   Navigator.of(context).pop();
                 },
               ),
@@ -282,5 +303,11 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _clearSessionCookies() async {
     await _cookieManager.clearCookies();
+  }
+
+  Future<void> _clearAll() async {
+    await _session.clear();
+    await _clearSessionCookies();
+    await _clearRefreshToken();
   }
 }
