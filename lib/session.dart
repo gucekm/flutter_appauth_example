@@ -1,4 +1,6 @@
+import 'dart:ffi';
 import 'dart:io';
+import 'package:http/http.dart' as http;
 
 import 'package:flutter_appauth/flutter_appauth.dart';
 
@@ -16,6 +18,8 @@ class Session {
   final String _issuer = 'https://prijava.telekom.si/prijava/realms/telekom';
   final String _discoveryUrl =
       'https://prijava.telekom.si/prijava/realms/telekom/.well-known/openid-configuration';
+  final String _logoutUrl =
+      "https://prijava.telekom.si/prijava/realms/telekom/protocol/openid-connect/logout";
   final String _postLogoutRedirectUrl = 'com.duendesoftware.demo:/';
   final List<String> _scopes = <String>[
     'openid',
@@ -61,7 +65,7 @@ class Session {
     return null;
   }
 
-  Future<bool> endSession() async {
+  Future<bool> endSessionBrowser() async {
     if (_idToken != null) {
       await _appAuth.endSession(EndSessionRequest(
         idTokenHint: _idToken,
@@ -72,6 +76,44 @@ class Session {
       return true;
     }
     return false;
+  }
+
+  Future<bool> endSession() async {
+    try {
+      http.Response response = await http.post(
+        Uri.parse(_logoutUrl),
+        headers: <String, String>{
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': 'Bearer $_refreshToken',
+          // replace 'YOUR_TOKEN' with your actual token
+        },
+        body:
+            'client_id=${Uri.encodeQueryComponent(_clientId)}&refresh_token=${Uri.encodeQueryComponent(_refreshToken ?? "")}',
+      );
+      if (response.statusCode == HttpStatus.noContent) {
+        return true;
+      }
+      return false;
+      //   try {
+      //     Uri logout = Uri.parse(_logoutUrl);
+      //     final client = HttpClient();
+      //     final request = await client.post(logout.host, logout.port, logout.path);
+      //     request.headers.set(HttpHeaders.authorizationHeader, "Bearer ${(_accessToken ?? "")}");
+      //     request.headers.set(
+      //         HttpHeaders.contentTypeHeader, "application/x-www-form-urlencoded");
+      //     request.write(
+      //         "client_id=${Uri.encodeQueryComponent(_clientId)}&refresh_token=${Uri.encodeQueryComponent(_refreshToken ?? "")}");
+      //     final response = await request.close();
+      //     switch (response.statusCode) {
+      //       case HttpStatus.noContent:
+      //         return true;
+      //         break;
+      //       default:
+      //         return false;
+      //     }
+    } catch (e) {
+      throw SessionException("Failed to log out user.");
+    }
   }
 
   Future<void> clear() async {
