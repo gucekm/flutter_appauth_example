@@ -87,41 +87,44 @@ class _MyAppState extends State<MyApp> {
 
   Future<bool> _checkSessionOnStartUp() async {
     try {
-// Check if refresh token exists and there is valid SSO session
+      // Check if refresh token exists
       if (await _storage.containsKey(key: "refreshToken")) {
-//check owner presence with biometrics
+        //check owner presence with biometrics
         await _authenticate();
+        if (!(_authorized == "Authorized")) {
+          //presence check failed
+          return false;
+        }
         _setBusyState();
-        await _loadRefreshToken();
-        if (await _session.refreshTokens(await _loadRefreshToken())) {
-          await _cookieManager.clearCookies();
-        } else {
+        //Check SSO session and try to refresh SSO token
+        if (!await _session.refreshTokens(await _loadRefreshToken())) {
+          //SSO session is not valid
           _clearBusyState();
           return false;
         }
-      } else {
-// otherwise authenticate user and create new SSO session
-        await signIn();
+        await _cookieManager.clearCookies();
+
+        // SSO session is valid, store SSO tokens
+        await _storeRefreshToken(_session.refreshToken);
+        // Retrieve MT session cookies and store them
+        await _storeSessionCookies(await _session.getMTSession());
+        await _webViewController.loadRequest(Uri.parse(_siteUrl));
+        //do not clear busy state, wait web page to finish loading
+        // _clearBusyState();
+        return true;
       }
-// SSO session is now valid so we retrieve MT session cookies
-// Inject cookies and load content
-      await _storeRefreshToken(_session.refreshToken);
-      await _storeSessionCookies(await _session.getMTSession());
-      await _webViewController.loadRequest(Uri.parse(_siteUrl));
-      //do not clear busy state, wait web page to finish loading
-      // _clearBusyState();
-      return true;
     } catch (e) {
       await _clearAll();
       _clearBusyState();
-      throw SessionException("Failed to check session on startup.");
     }
+    return false;
   }
 
   Future<bool> signIn() async {
     try {
       _setBusyState();
       await _session.signInWithAutoCodeExchange();
+      await _storeRefreshToken(_session.refreshToken);
       await _storeSessionCookies(await _session.getMTSession());
       //let operation after signIn clear busy state
       //_clearBusyState();
@@ -214,11 +217,18 @@ class _MyAppState extends State<MyApp> {
                         child: const LinearProgressIndicator(),
                       ),
                       const SizedBox(height: 8),
-                      Expanded(
-                        child: Container(
-                          height: 0,
-                          child: WebViewWidget(
-                            controller: _webViewController,
+                      Visibility(
+                        visible: !_session.isValid,
+                        child: const Text("Prijavi se!"),
+                      ),
+                      Visibility(
+                        visible: _session.isValid,
+                        child: Expanded(
+                          child: Container(
+                            height: 0,
+                            child: WebViewWidget(
+                              controller: _webViewController,
+                            ),
                           ),
                         ),
                       ),
@@ -239,6 +249,7 @@ class _MyAppState extends State<MyApp> {
           switch (index) {
             case 0:
               await signIn();
+              await _webViewController.loadRequest(Uri.parse(_siteUrl));
               _clearBusyState();
               break;
             case 1:
