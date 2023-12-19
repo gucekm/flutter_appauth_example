@@ -12,6 +12,11 @@ class Session {
   String? _refreshToken;
   String? _accessToken;
   String? _idToken;
+  bool _isValid = true;
+
+  get isValid {
+    return _isValid;
+  }
 
   final String _clientId = 'test-client';
   final String _redirectUrl = 'com.duendesoftware.demo:/oauthredirect';
@@ -37,15 +42,21 @@ class Session {
   }
 
   Future<bool> refreshTokens(String? refreshToken) async {
+    _isValid = false;
     final TokenResponse? result = await _appAuth.token(TokenRequest(
         _clientId, _redirectUrl,
         refreshToken: refreshToken, issuer: _issuer, scopes: _scopes));
-    _processTokenResponse(result);
-    return true;
+    if (result != null) {
+      _processTokenResponse(result);
+      _isValid = true;
+      return true;
+    }
+    return false;
   }
 
   Future<String?> signInWithAutoCodeExchange(
       {bool preferEphemeralSession = false}) async {
+    _isValid = false;
     final AuthorizationTokenResponse? result =
         await _appAuth.authorizeAndExchangeCode(
       AuthorizationTokenRequest(
@@ -60,6 +71,7 @@ class Session {
     );
     if (result != null) {
       _processAuthTokenResponse(result);
+      _isValid = true;
       return _refreshToken;
     }
     return null;
@@ -73,6 +85,7 @@ class Session {
         postLogoutRedirectUrl: _postLogoutRedirectUrl,
       ));
       await clear();
+      _isValid = false;
       return true;
     }
     return false;
@@ -91,26 +104,10 @@ class Session {
             'client_id=${Uri.encodeQueryComponent(_clientId)}&refresh_token=${Uri.encodeQueryComponent(_refreshToken ?? "")}',
       );
       if (response.statusCode == HttpStatus.noContent) {
+        _isValid = false;
         return true;
       }
       return false;
-      //   try {
-      //     Uri logout = Uri.parse(_logoutUrl);
-      //     final client = HttpClient();
-      //     final request = await client.post(logout.host, logout.port, logout.path);
-      //     request.headers.set(HttpHeaders.authorizationHeader, "Bearer ${(_accessToken ?? "")}");
-      //     request.headers.set(
-      //         HttpHeaders.contentTypeHeader, "application/x-www-form-urlencoded");
-      //     request.write(
-      //         "client_id=${Uri.encodeQueryComponent(_clientId)}&refresh_token=${Uri.encodeQueryComponent(_refreshToken ?? "")}");
-      //     final response = await request.close();
-      //     switch (response.statusCode) {
-      //       case HttpStatus.noContent:
-      //         return true;
-      //         break;
-      //       default:
-      //         return false;
-      //     }
     } catch (e) {
       throw SessionException("Failed to log out user.");
     }
@@ -123,6 +120,7 @@ class Session {
     _accessToken = null;
     _idToken = null;
     _refreshToken = null;
+    _isValid = false;
   }
 
   void _processAuthTokenResponse(AuthorizationTokenResponse response) {
