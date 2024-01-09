@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_appauth_example/session.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:local_auth_android/local_auth_android.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
@@ -58,7 +59,9 @@ class _MyAppState extends State<MyApp> {
         final host = Uri.parse(navigation.url).host;
         if (host.contains(_ssoDomain)) {
           try {
-            if (await signIn()) {
+            var result = signIn();
+            setState(() {});
+            if (await result) {
               await _webViewController.loadRequest(Uri.parse(_siteUrl));
             }
             return NavigationDecision.prevent;
@@ -90,15 +93,23 @@ class _MyAppState extends State<MyApp> {
       // Check if refresh token exists
       if (await _storage.containsKey(key: "refreshToken")) {
         //check owner presence with biometrics
+        setState(() {
+          _isAuthenticating = true;
+        });
         await _authenticate();
         if (!(_authorized == "Authorized")) {
           //presence check failed
+          _clearAll();
+          setState(() {
+            _isAuthenticating = false;
+          });
           return false;
         }
         _setBusyState();
         //Check SSO session and try to refresh SSO token
         if (!await _session.refreshTokens(await _loadRefreshToken())) {
           //SSO session is not valid
+          _isAuthenticating = false;
           _clearBusyState();
           return false;
         }
@@ -108,6 +119,7 @@ class _MyAppState extends State<MyApp> {
         await _storeRefreshToken(_session.refreshToken);
         // Retrieve MT session cookies and store them
         await _storeSessionCookies(await _session.getMTSession());
+        _isAuthenticating = false;
         await _webViewController.loadRequest(Uri.parse(_siteUrl));
         //do not clear busy state, wait web page to finish loading
         // _clearBusyState();
@@ -115,6 +127,7 @@ class _MyAppState extends State<MyApp> {
       }
     } catch (e) {
       await _clearAll();
+
       _clearBusyState();
     }
     return false;
@@ -122,8 +135,9 @@ class _MyAppState extends State<MyApp> {
 
   Future<bool> signIn() async {
     try {
+      Future<String?> result = _session.signInWithAutoCodeExchange();
       _setBusyState();
-      await _session.signInWithAutoCodeExchange();
+      await result;
       await _storeRefreshToken(_session.refreshToken);
       await _storeSessionCookies(await _session.getMTSession());
       //let operation after signIn clear busy state
@@ -153,32 +167,28 @@ class _MyAppState extends State<MyApp> {
   Future<void> _authenticate() async {
     bool authenticated = false;
     try {
-      setState(() {
-        _isAuthenticating = true;
-        _authorized = 'Authenticating';
-      });
+      _authorized = 'Authenticating';
       authenticated = await auth.authenticate(
-        localizedReason: 'Let OS determine authentication method',
+        localizedReason: 'Izberi način prijave',
+        authMessages: const <AuthMessages>[
+        AndroidAuthMessages(
+          signInTitle: "Oops! Biometric authentication required!",
+          biometricHint: "Kdo si?",
+          cancelButton: "No thanks",
+        ),
+        ],
         options: const AuthenticationOptions(
           stickyAuth: true,
         ),
       );
-      setState(() {
-        _isAuthenticating = false;
-      });
     } on PlatformException catch (e) {
-      setState(() {
-        _isAuthenticating = false;
-        _authorized = 'Error - ${e.message}';
-      });
+      _authorized = 'Error - ${e.message}';
       return;
     }
     if (!mounted) {
       return;
     }
-
-    setState(
-        () => _authorized = authenticated ? 'Authorized' : 'Not Authorized');
+    _authorized = authenticated ? 'Authorized' : 'Not Authorized';
   }
 
   Future<String?> _loadRefreshToken() async {
@@ -204,26 +214,25 @@ class _MyAppState extends State<MyApp> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (BuildContext context, BoxConstraints viewportConstraints) {
-            return SingleChildScrollView(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: viewportConstraints.maxHeight,
-                ),
-                child: IntrinsicHeight(
-                  child: Column(
-                    children: <Widget>[
-                      Visibility(
-                        visible: _isBusy,
-                        child: const LinearProgressIndicator(),
-                      ),
-                      const SizedBox(height: 8),
-                      Visibility(
-                        visible: !_session.isValid,
-                        child: const Text("Prijavi se!"),
-                      ),
-                      Visibility(
-                        visible: _session.isValid,
-                        child: Expanded(
+            if (_session.isAuthenticating || _isAuthenticating) {
+              return const Center(
+                child: Text("Prijava v teku ..."),
+              );
+            } else if (_session.isValid) {
+              return SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: viewportConstraints.maxHeight,
+                  ),
+                  child: IntrinsicHeight(
+                    child: Column(
+                      children: <Widget>[
+                        Visibility(
+                          visible: _isBusy,
+                          child: const LinearProgressIndicator(),
+                        ),
+                        const SizedBox(height: 8),
+                        Expanded(
                           child: Container(
                             height: 0,
                             child: WebViewWidget(
@@ -231,12 +240,16 @@ class _MyAppState extends State<MyApp> {
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            );
+              );
+            } else {
+              return const Center(
+                child: Text("Prijavi se!"),
+              );
+            }
           },
         ),
       ),
@@ -248,12 +261,15 @@ class _MyAppState extends State<MyApp> {
         onTap: (index) async {
           switch (index) {
             case 0:
-              await signIn();
+              var result = signIn();
+              setState(() {});
+              await result;
               await _webViewController.loadRequest(Uri.parse(_siteUrl));
-              _clearBusyState();
               break;
             case 1:
-              await signOut();
+              var result = signOut();
+              setState(() {});
+              await result;
               //we force login again
               await _webViewController.loadRequest(Uri.parse(_siteUrl));
               break;
@@ -272,31 +288,6 @@ class _MyAppState extends State<MyApp> {
   void _setBusyState() {
     setState(() {
       _isBusy = true;
-    });
-  }
-
-  void _showDialog() {
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await showDialog(
-        context: context,
-        builder: (BuildContext context) => Center(
-          child: AlertDialog(
-            title: const Text('Welcome'),
-            actions: <Widget>[
-              TextButton(
-                child: const Text('OK'),
-                onPressed: () async {
-                  await signIn();
-                  Navigator.of(context).pop();
-                },
-              ),
-            ],
-            insetPadding: const EdgeInsets.all(20),
-            contentPadding: const EdgeInsets.all(20),
-            content: const Text('Seja je žal potekla!'),
-          ),
-        ),
-      );
     });
   }
 
@@ -320,5 +311,6 @@ class _MyAppState extends State<MyApp> {
     await _session.clear();
     await _clearSessionCookies();
     await _clearRefreshToken();
+    _isAuthenticating = false;
   }
 }

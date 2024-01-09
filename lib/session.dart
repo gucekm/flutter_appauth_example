@@ -12,10 +12,15 @@ class Session {
   String? _refreshToken;
   String? _accessToken;
   String? _idToken;
-  bool _isValid = true;
+  bool _isValid = false;
+  bool _isAuthenticating = false;
 
   get isValid {
     return _isValid;
+  }
+
+  get isAuthenticating {
+    return _isAuthenticating;
   }
 
   final String _clientId = 'test-client';
@@ -56,7 +61,7 @@ class Session {
 
   Future<String?> signInWithAutoCodeExchange(
       {bool preferEphemeralSession = false}) async {
-    _isValid = false;
+    _isAuthenticating = true;
     final AuthorizationTokenResponse? result =
         await _appAuth.authorizeAndExchangeCode(
       AuthorizationTokenRequest(
@@ -71,9 +76,12 @@ class Session {
     );
     if (result != null) {
       _processAuthTokenResponse(result);
+      _isAuthenticating = false;
       _isValid = true;
       return _refreshToken;
     }
+    _isAuthenticating = false;
+    _isValid = false;
     return null;
   }
 
@@ -121,6 +129,7 @@ class Session {
     _idToken = null;
     _refreshToken = null;
     _isValid = false;
+    _isAuthenticating = false;
   }
 
   void _processAuthTokenResponse(AuthorizationTokenResponse response) {
